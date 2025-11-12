@@ -1,11 +1,11 @@
 from flask import Flask, render_template, request, send_file
 import os
 import sys
+import tempfile
 import pandas as pd
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter
-from openpyxl import load_workbook
 
 # Define base directory first
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -383,80 +383,71 @@ def generate_signature_list(input_file):
 def cleanup_files():
     """Remove all files from upload and output directories"""
     try:
-        # Clear upload folder
-        if os.path.exists(UPLOAD_FOLDER):
-            for filename in os.listdir(UPLOAD_FOLDER):
-                file_path = os.path.join(UPLOAD_FOLDER, filename)
-                try:
-                    if os.path.isfile(file_path):
-                        os.remove(file_path)
-                except Exception as e:
-                    pass
+        for filename in os.listdir(UPLOAD_FOLDER):
+            file_path = os.path.join(UPLOAD_FOLDER, filename)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
         
-        # Clear output folder
-        if os.path.exists(OUTPUT_FOLDER):
-            for filename in os.listdir(OUTPUT_FOLDER):
-                file_path = os.path.join(OUTPUT_FOLDER, filename)
-                try:
-                    if os.path.isfile(file_path):
-                        os.remove(file_path)
-                except Exception as e:
-                    pass
-        
-        return True
+        for filename in os.listdir(OUTPUT_FOLDER):
+            file_path = os.path.join(OUTPUT_FOLDER, filename)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
     except Exception as e:
-        return False
+        print(f"Cleanup error: {str(e)}")
 
 
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
+        if 'file' not in request.files:
+            return render_template("index.html", error="No file provided")
+        
+        file = request.files['file']
+        if file.filename == '':
+            return render_template("index.html", error="No file selected")
+        
+        if not file.filename.endswith('.xlsx'):
+            return render_template("index.html", error="Please upload an Excel file")
+        
         try:
-            if "file" not in request.files:
-                return render_template("index.html", error="No file uploaded")
-            file = request.files["file"]
-            if file.filename == "":
-                return render_template("index.html", error="No file selected")
+            filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+            file.save(filepath)
             
-            # Cleanup old files before generating new ones
-            cleanup_files()
+            # Generate files
+            plan_path = create_seating_plan(filepath)
+            arrangement_path = generate_seating_arrangement(filepath)
+            signature_path = generate_signature_list(filepath)
             
-            file_path = os.path.join(UPLOAD_FOLDER, file.filename)
-            file.save(file_path)
-
-            plan = create_seating_plan(file_path)
-            arrangement = generate_seating_arrangement(file_path)
-            signature = generate_signature_list(file_path)
-
-            return render_template(
-                "index.html",
-                plan_file=os.path.basename(plan),
-                arrangement_file=os.path.basename(arrangement),
-                signature_file=os.path.basename(signature)
-            )
+            # Return with correct variable names
+            return render_template("index.html",
+                                 plan_file='plan_updated.xlsx',
+                                 arrangement_file='seating_arrangement.xlsx',
+                                 signature_file='signature_list.xlsx')
         except Exception as e:
-            return render_template("index.html", error=f"Error processing file: {str(e)}")
+            return render_template("index.html", error=f"Error: {str(e)}")
     
     return render_template("index.html")
 
 
 @app.route("/download/<filename>")
 def download(filename):
-    file_path = os.path.join(OUTPUT_FOLDER, filename)
     try:
+        file_path = os.path.join(OUTPUT_FOLDER, filename)
+        if not os.path.exists(file_path):
+            return "File not found", 404
+        
         return send_file(file_path, as_attachment=True)
     except Exception as e:
-        return "Error downloading file", 500
+        return f"Error: {str(e)}", 500
 
 
 @app.route("/reset")
 def reset():
-    """Reset endpoint to clean up files"""
-    success = cleanup_files()
-    if success:
-        return {"status": "success", "message": "Files deleted successfully"}
-    else:
-        return {"status": "error", "message": "Error deleting files"}, 500
+    try:
+        cleanup_files()
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
 
 
 if __name__ == "__main__":
