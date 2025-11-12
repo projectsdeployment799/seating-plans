@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Exam Seating Automation</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="navbar">
+    <div class="nav-content">
+      <h2 class="nav-title"><i class="fas fa-chart-bar"></i> Exam Seating System</h2>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="main-content">
+      <section class="upload-section">
+        <div class="section-header">
+          <h2><i class="fas fa-file-excel"></i> Upload File</h2>
+          <p>Import your Excel file to generate seating arrangements</p>
+        </div>
+        
+        <form method="POST" enctype="multipart/form-data" class="upload-form" id="uploadForm">
+          <div class="file-input-wrapper">
+            <input type="file" name="file" accept=".xlsx" required id="fileInput">
+            <label for="fileInput">
+              <i class="fas fa-cloud-upload-alt"></i>
+              <span id="fileName">Choose Excel File (.xlsx)</span>
+            </label>
+          </div>
+          <div class="form-buttons">
+            <button type="submit" class="btn-primary" id="submitBtn">
+              <i class="fas fa-cog"></i> Generate All
+            </button>
+            <button type="button" class="btn-reset" id="resetBtn">
+              <i class="fas fa-redo"></i> Reset
+            </button>
+          </div>
+        </form>
+      </section>
+
+      {% if plan_file %}
+      <section class="results-section" id="resultsSection">
+        <div class="section-header">
+          <h2><i class="fas fa-sitemap"></i> Seating Plan</h2>
+          <p>Download your generated seating plans</p>
+        </div>
+        
+        <div class="results-grid">
+          <a href="{{ url_for('download', filename=plan_file) }}" class="btn-download" onclick="showDownloadToast()">
+            <i class="fas fa-download"></i>
+            <div>
+              <div class="btn-title">Seating Plan</div>
+              <div class="btn-desc">Excel Format</div>
+            </div>
+          </a>
+          <a href="{{ url_for('download', filename=arrangement_file) }}" class="btn-download" onclick="showDownloadToast()">
+            <i class="fas fa-download"></i>
+            <div>
+              <div class="btn-title">Seating Arrangement</div>
+              <div class="btn-desc">Excel Format</div>
+            </div>
+          </a>
+        </div>
+      </section>
+
+      <section class="results-section" id="signatureSection">
+        <div class="section-header">
+          <h2><i class="fas fa-pen-fancy"></i> Signature List</h2>
+          <p>Download the signature sheet for students</p>
+        </div>
+        
+        <div class="results-grid">
+          <a href="{{ url_for('download', filename=signature_file) }}" class="btn-download" onclick="showDownloadToast()">
+            <i class="fas fa-download"></i>
+            <div>
+              <div class="btn-title">Signature List</div>
+              <div class="btn-desc">Excel Format</div>
+            </div>
+          </a>
+        </div>
+      </section>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+document.addEventListener('DOMContentLoaded', function() {
+  const fileInput = document.getElementById('fileInput');
+  const fileWrapper = document.querySelector('.file-input-wrapper');
+  const fileName = document.getElementById('fileName');
+  const uploadForm = document.getElementById('uploadForm');
+  const submitBtn = document.getElementById('submitBtn');
+  const resetBtn = document.getElementById('resetBtn');
+
+  // Prevent default drag behaviors
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    fileWrapper.addEventListener(eventName, preventDefaults, false);
+    document.body.addEventListener(eventName, preventDefaults, false);
+  });
+
+  function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  // Highlight drop area when item is dragged over it
+  ['dragenter', 'dragover'].forEach(eventName => {
+    fileWrapper.addEventListener(eventName, () => {
+      fileWrapper.classList.add('drag-over');
+    });
+  });
+
+  ['dragleave', 'drop'].forEach(eventName => {
+    fileWrapper.addEventListener(eventName, () => {
+      fileWrapper.classList.remove('drag-over');
+    });
+  });
+
+  // Handle dropped files
+  fileWrapper.addEventListener('drop', handleDrop, false);
+
+  function handleDrop(e) {
+    const dt = e.dataTransfer;
+    const files = dt.files;
+    fileInput.files = files;
+    updateFileName(files[0]);
+  }
+
+  // Handle file selection via input
+  fileInput.addEventListener('change', function() {
+    if (this.files && this.files[0]) {
+      updateFileName(this.files[0]);
+    }
+  });
+
+  function updateFileName(file) {
+    if (file.name.endsWith('.xlsx')) {
+      fileName.textContent = file.name;
+      showToast('File selected: ' + file.name, 'success');
+    } else {
+      showToast('Please select a valid Excel file (.xlsx)', 'error');
+      fileInput.value = '';
+      fileName.textContent = 'Choose Excel File (.xlsx)';
+    }
+  }
+
+  // Handle form submission
+  uploadForm.addEventListener('submit', function(e) {
+    showToast('Generating files...', 'info');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+  });
+
+  // Handle reset button
+  resetBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    resetPage();
+  });
+
+  function resetPage() {
+    // Call reset endpoint to delete files
+    fetch('/reset')
+      .then(response => response.json())
+      .then(data => {
+        if (data.status === 'success') {
+          console.log('Files deleted successfully');
+          // Clear file input
+          fileInput.value = '';
+          fileName.textContent = 'Choose Excel File (.xlsx)';
+          
+          // Reset button states
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = '<i class="fas fa-cog"></i> Generate All';
+          
+          // Remove results sections
+          const resultsSection = document.getElementById('resultsSection');
+          const signatureSection = document.getElementById('signatureSection');
+          
+          if (resultsSection) {
+            resultsSection.style.animation = 'slideOut 0.3s ease';
+            setTimeout(() => resultsSection.remove(), 300);
+          }
+          
+          if (signatureSection) {
+            signatureSection.style.animation = 'slideOut 0.3s ease';
+            setTimeout(() => signatureSection.remove(), 300);
+          }
+          
+          showToast('Page reset. Files deleted. Ready for new upload!', 'success');
+          
+          // Scroll to top
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        showToast('Error resetting page', 'error');
+      });
+  }
+
+  // Toast notification function
+  window.showToast = function(message, type = 'info') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    
+    let icon = 'fa-info-circle';
+    if (type === 'success') icon = 'fa-check-circle';
+    if (type === 'error') icon = 'fa-exclamation-circle';
+    if (type === 'info') icon = 'fa-spinner fa-spin';
+    
+    toast.innerHTML = `
+      <i class="fas ${icon}"></i>
+      <span>${message}</span>
+      <button class="toast-close" onclick="this.parentElement.remove()">
+        <i class="fas fa-times"></i>
+      </button>
+    `;
+    
+    container.appendChild(toast);
+    
+    // Auto remove after 4 seconds (except for info type which stays longer)
+    const duration = type === 'info' ? 0 : 4000;
+    if (duration > 0) {
+      setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 300);
+      }, duration);
+    }
+  };
+
+  window.showDownloadToast = function() {
+    showToast('File downloaded successfully!', 'success');
+  };
+});
+</script>
+</body>
+</html>
